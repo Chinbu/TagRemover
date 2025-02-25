@@ -1,9 +1,9 @@
 import os
 import logging
+import asyncio
 from flask import Flask, request
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Update
-from aiogram.utils.executor import start_webhook
 
 # Load environment variables
 TOKEN = os.getenv("BOT_TOKEN")  # Bot Token from BotFather
@@ -11,8 +11,8 @@ CHANNEL_ID = os.getenv("-1002135826586")  # Channel ID (with -100 prefix)
 WEBHOOK_URL = os.getenv("https://app.koyeb.com/")  # Koyeb webhook URL
 
 # Initialize bot and dispatcher
-bot = Bot(token=TOKEN, parse_mode=types.ParseMode.HTML)
-dp = Dispatcher(bot)
+bot = Bot(token=TOKEN, parse_mode="HTML")
+dp = Dispatcher()
 
 # Flask app for webhook
 app = Flask(__name__)
@@ -29,15 +29,14 @@ WEBAPP_PORT = int(os.getenv("PORT", 8080))  # Koyeb default port
 @app.route(WEBHOOK_PATH, methods=["POST"])
 async def webhook():
     """Handle incoming webhook updates"""
-    update = Update(**request.get_json())
-    await dp.process_update(update)
+    update = Update.model_validate(request.get_json())
+    await dp.feed_update(bot, update)
     return "OK", 200
 
-@dp.message_handler(content_types=types.ContentType.ANY)
+@dp.message()
 async def forward_without_tag(message: types.Message):
     """Forwards messages to the channel without forward tag"""
     try:
-        # Handle different content types
         if message.text:
             await bot.send_message(CHANNEL_ID, message.text)
         elif message.photo:
@@ -52,28 +51,21 @@ async def forward_without_tag(message: types.Message):
             await bot.send_voice(CHANNEL_ID, message.voice.file_id, caption=message.caption)
         elif message.sticker:
             await bot.send_sticker(CHANNEL_ID, message.sticker.file_id)
-        
-        await message.reply("✅ Forwarded to channel without tag!")
+
+        await message.answer("✅ Forwarded to channel without tag!")
     except Exception as e:
         logging.error(f"Error forwarding message: {e}")
-        await message.reply("❌ Error forwarding message!")
+        await message.answer("❌ Error forwarding message!")
 
-async def on_startup(dp):
+async def on_startup():
     """Set webhook on bot startup"""
     await bot.set_webhook(WEBHOOK_URL_FULL)
     logging.info(f"Webhook set: {WEBHOOK_URL_FULL}")
 
-async def on_shutdown(dp):
-    """Delete webhook on shutdown"""
-    await bot.delete_webhook()
+async def start():
+    """Start webhook bot"""
+    await on_startup()
+    app.run(host=WEBAPP_HOST, port=WEBAPP_PORT)
 
 if __name__ == "__main__":
-    from aiogram import executor
-    executor.start_webhook(
-        dispatcher=dp,
-        webhook_path=WEBHOOK_PATH,
-        on_startup=on_startup,
-        on_shutdown=on_shutdown,
-        host=WEBAPP_HOST,
-        port=WEBAPP_PORT,
-    )
+    asyncio.run(start())
