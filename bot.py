@@ -6,9 +6,9 @@ from aiogram.types import Update
 from aiogram.utils.executor import start_webhook
 
 # Load environment variables
-TOKEN = os.getenv("BOT_TOKEN")  # Get bot token from environment
-TARGET_CHAT_ID = os.getenv("4732667353")  # Get target chat ID
-WEBHOOK_URL = os.getenv("https://app.koyeb.com/")  # Set your webhook URL (e.g., Koyeb domain)
+TOKEN = os.getenv("BOT_TOKEN")  # Bot Token from BotFather
+CHANNEL_ID = os.getenv("-1002135826586")  # Channel ID (with -100 prefix)
+WEBHOOK_URL = os.getenv("https://app.koyeb.com/")  # Koyeb webhook URL
 
 # Initialize bot and dispatcher
 bot = Bot(token=TOKEN, parse_mode=types.ParseMode.HTML)
@@ -22,10 +22,9 @@ logging.basicConfig(level=logging.INFO)
 
 # Webhook settings
 WEBHOOK_PATH = f"/{TOKEN}"
-WEBHOOK_HOST = WEBHOOK_URL
-WEBHOOK_URL_FULL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+WEBHOOK_URL_FULL = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
 WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = int(os.getenv("PORT", 8080))  # Set to 8080 for Koyeb
+WEBAPP_PORT = int(os.getenv("PORT", 8080))  # Koyeb default port
 
 @app.route(WEBHOOK_PATH, methods=["POST"])
 async def webhook():
@@ -36,12 +35,28 @@ async def webhook():
 
 @dp.message_handler(content_types=types.ContentType.ANY)
 async def forward_without_tag(message: types.Message):
-    """Removes forward tags and forwards messages."""
-    if message.forward_from or message.forward_from_chat:
-        await message.copy_to(chat_id=TARGET_CHAT_ID)  # Copies without forward tag
-        await message.reply("✅ Forwarded without tag!")
-    else:
-        await message.reply("❌ This message has no forward tag.")
+    """Forwards messages to the channel without forward tag"""
+    try:
+        # Handle different content types
+        if message.text:
+            await bot.send_message(CHANNEL_ID, message.text)
+        elif message.photo:
+            await bot.send_photo(CHANNEL_ID, message.photo[-1].file_id, caption=message.caption)
+        elif message.video:
+            await bot.send_video(CHANNEL_ID, message.video.file_id, caption=message.caption)
+        elif message.document:
+            await bot.send_document(CHANNEL_ID, message.document.file_id, caption=message.caption)
+        elif message.audio:
+            await bot.send_audio(CHANNEL_ID, message.audio.file_id, caption=message.caption)
+        elif message.voice:
+            await bot.send_voice(CHANNEL_ID, message.voice.file_id, caption=message.caption)
+        elif message.sticker:
+            await bot.send_sticker(CHANNEL_ID, message.sticker.file_id)
+        
+        await message.reply("✅ Forwarded to channel without tag!")
+    except Exception as e:
+        logging.error(f"Error forwarding message: {e}")
+        await message.reply("❌ Error forwarding message!")
 
 async def on_startup(dp):
     """Set webhook on bot startup"""
