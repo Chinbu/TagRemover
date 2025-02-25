@@ -1,48 +1,64 @@
 import os
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-from aiohttp import web
+import logging
+from flask import Flask, request
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import Update
+from aiogram.utils.executor import start_webhook
 
-# Replace with your bot token
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+# Load environment variables
+TOKEN = os.getenv("BOT_TOKEN")  # Get bot token from environment
+TARGET_CHAT_ID = os.getenv("4732667353")  # Get target chat ID
+WEBHOOK_URL = os.getenv("https://app.koyeb.com/")  # Set your webhook URL (e.g., Koyeb domain)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Hello! Send me any forwarded message, and I will remove the forward tag.")
+# Initialize bot and dispatcher
+bot = Bot(token=TOKEN, parse_mode=types.ParseMode.HTML)
+dp = Dispatcher(bot)
 
-async def remove_forward_tag(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.forward_from or update.message.forward_from_chat:
-        # Copy the forwarded message text
-        text = update.message.text or update.message.caption
-        if text:
-            await update.message.reply_text(text)
-        else:
-            await update.message.reply_text("The forwarded message has no text content.")
+# Flask app for webhook
+app = Flask(__name__)
+
+# Logging
+logging.basicConfig(level=logging.INFO)
+
+# Webhook settings
+WEBHOOK_PATH = f"/{TOKEN}"
+WEBHOOK_HOST = WEBHOOK_URL
+WEBHOOK_URL_FULL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+WEBAPP_HOST = "0.0.0.0"
+WEBAPP_PORT = int(os.getenv("PORT", 8080))  # Set to 8080 for Koyeb
+
+@app.route(WEBHOOK_PATH, methods=["POST"])
+async def webhook():
+    """Handle incoming webhook updates"""
+    update = Update(**request.get_json())
+    await dp.process_update(update)
+    return "OK", 200
+
+@dp.message_handler(content_types=types.ContentType.ANY)
+async def forward_without_tag(message: types.Message):
+    """Removes forward tags and forwards messages."""
+    if message.forward_from or message.forward_from_chat:
+        await message.copy_to(chat_id=TARGET_CHAT_ID)  # Copies without forward tag
+        await message.reply("✅ Forwarded without tag!")
     else:
-        await update.message.reply_text("This message is not forwarded.")
+        await message.reply("❌ This message has no forward tag.")
 
-async def health_check(request):
-    return web.Response(text="Bot is running!")
+async def on_startup(dp):
+    """Set webhook on bot startup"""
+    await bot.set_webhook(WEBHOOK_URL_FULL)
+    logging.info(f"Webhook set: {WEBHOOK_URL_FULL}")
 
-async def start_bot():
-    # Start the Telegram bot
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # Handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.FORWARDED, remove_forward_tag))
-
-    # Start the bot in polling mode
-    await app.initialize()
-    await app.start()
-    print("Bot is running...")
+async def on_shutdown(dp):
+    """Delete webhook on shutdown"""
+    await bot.delete_webhook()
 
 if __name__ == "__main__":
-    # Start the HTTP server on port 8080
-    http_app = web.Application()
-    http_app.router.add_get("/", health_check)
-    runner = web.AppRunner(http_app)
-    web.run_app(http_app, port=8080)
-
-    # Start the bot
-    import asyncio
-    asyncio.run(start_bot())
+    from aiogram import executor
+    executor.start_webhook(
+        dispatcher=dp,
+        webhook_path=WEBHOOK_PATH,
+        on_startup=on_startup,
+        on_shutdown=on_shutdown,
+        host=WEBAPP_HOST,
+        port=WEBAPP_PORT,
+    )
